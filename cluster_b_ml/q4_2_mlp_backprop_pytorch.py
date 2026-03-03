@@ -1,29 +1,10 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
 import numpy as np
 
 # ============================================================
-# STEP 1: DATASET
-# Custom Dataset must implement __len__ and __getitem__
-# ============================================================
-
-class ToyDataset(Dataset):
-    def __init__(self, X: np.ndarray, y: np.ndarray):
-        # Convert to tensors here — keep DataLoader clean
-        self.X = torch.tensor(X, dtype=torch.float32)
-        self.y = torch.tensor(y, dtype=torch.long)   # CrossEntropyLoss needs Long
-
-    def __len__(self):
-        return len(self.X)
-
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
-
-
-# ============================================================
-# STEP 2: MODEL
+# STEP 1: MODEL
 # nn.Module requires __init__ and forward()
 # ============================================================
 
@@ -45,7 +26,7 @@ class MLP(nn.Module):
 
 
 # ============================================================
-# STEP 3: TRAINING LOOP
+# STEP 2: TRAINING LOOP
 # The 5-line pattern you must know cold:
 #   1. optimizer.zero_grad()
 #   2. outputs = model(X)
@@ -55,75 +36,60 @@ class MLP(nn.Module):
 # ============================================================
 
 def train(model: nn.Module,
-          dataloader: DataLoader,
-          criterion: nn.Module,
-          optimizer: optim.Optimizer,
+          X: torch.Tensor,
+          y: torch.Tensor,
+          lr: float = 0.01,
           epochs: int = 10) -> None:
+
+    criterion = nn.CrossEntropyLoss()       # softmax + NLL, expects raw logits
+    optimizer = optim.SGD(model.parameters(), lr=lr, momentum=0.9)
 
     model.train()   # sets dropout/batchnorm to training mode (good habit)
 
     for epoch in range(epochs):
-        total_loss = 0.0
-        correct = 0
-        total = 0
+        optimizer.zero_grad()              # 1. clear gradients from last step
 
-        for X_batch, y_batch in dataloader:
-            optimizer.zero_grad()              # 1. clear gradients from last step
+        outputs = model(X)                 # 2. forward pass → raw logits
 
-            outputs = model(X_batch)           # 2. forward pass → raw logits
+        loss = criterion(outputs, y)       # 3. compute loss
+                                           #    CrossEntropyLoss = softmax + NLL
+                                           #    expects (batch, classes) vs (batch,)
 
-            loss = criterion(outputs, y_batch) # 3. compute loss
-                                               #    CrossEntropyLoss = softmax + NLL
-                                               #    expects (batch, classes) vs (batch,)
+        loss.backward()                    # 4. backprop — compute all gradients
 
-            loss.backward()                    # 4. backprop — compute all gradients
+        optimizer.step()                   # 5. update weights
 
-            optimizer.step()                   # 5. update weights
-
-            # Tracking
-            total_loss += loss.item()          # .item() extracts scalar from tensor
-            preds = outputs.argmax(dim=1)      # predicted class = highest logit
-            correct += (preds == y_batch).sum().item()
-            total += len(y_batch)
-
-        avg_loss = total_loss / len(dataloader)
-        accuracy = correct / total
-        if (epoch + 1) % 2 == 0:
-            print(f"Epoch {epoch+1}/{epochs} | Loss: {avg_loss:.4f} | Acc: {accuracy:.3f}")
+        if (epoch + 1) % 20 == 0:
+            preds = outputs.argmax(dim=-1)
+            accuracy = (preds == y).float().mean().item()
+            print(f"Epoch {epoch+1}/{epochs} | Loss: {loss.item():.4f} | Acc: {accuracy:.3f}")
 
 
 # ============================================================
-# STEP 4: EVALUATION (separate from training — no gradients)
+# STEP 3: EVALUATION (separate from training — no gradients)
 # ============================================================
 
-def evaluate(model: nn.Module, dataloader: DataLoader) -> float:
+def evaluate(model: nn.Module, X: torch.Tensor, y: torch.Tensor) -> float:
     model.eval()   # disables dropout, uses running stats for batchnorm
 
-    correct = 0
-    total = 0
-
     with torch.no_grad():   # no gradient tracking — saves memory, faster
-        for X_batch, y_batch in dataloader:
-            outputs = model(X_batch)
-            preds = outputs.argmax(dim=1)
-            correct += (preds == y_batch).sum().item()
-            total += len(y_batch)
+        outputs = model(X)
+        preds = outputs.argmax(dim=-1)
+        accuracy = (preds == y).float().mean().item()
 
-    return correct / total
+    return accuracy
 
 
-def predict(model: nn.Module, X: np.ndarray) -> np.ndarray:
-    """Return predicted class labels for raw numpy input."""
+def predict(model: nn.Module, X: torch.Tensor) -> torch.Tensor:
+    """Return predicted class labels."""
     model.eval()
     with torch.no_grad():
-        X_tensor = torch.tensor(X, dtype=torch.float32)
-        logits = model(X_tensor)
-        preds = logits.argmax(dim=-1)
-    return preds.numpy()
+        logits = model(X)
+    return logits.argmax(dim=-1)
 
 
 # ============================================================
-# STEP 5: TOY DATA + PUTTING IT ALL TOGETHER
+# STEP 4: TOY DATA + PUTTING IT ALL TOGETHER
 # ============================================================
 
 def make_toy_data(n_samples=200, input_dim=10, n_classes=3, seed=42):
@@ -142,38 +108,31 @@ if __name__ == "__main__":
     INPUT_DIM  = 10
     HIDDEN_DIM = 32
     N_CLASSES  = 3
-    BATCH_SIZE = 32
-    EPOCHS     = 10
+    EPOCHS     = 100
     LR         = 0.01
 
     # Data
-    X, y = make_toy_data(n_samples=200, input_dim=INPUT_DIM, n_classes=N_CLASSES)
+    X_np, y_np = make_toy_data(n_samples=200, input_dim=INPUT_DIM, n_classes=N_CLASSES)
 
     # Train/val split (manual — no sklearn)
-    split = int(0.8 * len(X))
-    X_train, X_val = X[:split], X[split:]
-    y_train, y_val = y[:split], y[split:]
+    split = int(0.8 * len(X_np))
+    X_train = torch.tensor(X_np[:split], dtype=torch.float32)
+    X_val   = torch.tensor(X_np[split:], dtype=torch.float32)
+    y_train = torch.tensor(y_np[:split], dtype=torch.long)
+    y_val   = torch.tensor(y_np[split:], dtype=torch.long)
 
-    train_dataset = ToyDataset(X_train, y_train)
-    val_dataset   = ToyDataset(X_val, y_val)
-
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader   = DataLoader(val_dataset,   batch_size=BATCH_SIZE, shuffle=False)
-
-    # Model, loss, optimizer
-    model     = MLP(INPUT_DIM, HIDDEN_DIM, N_CLASSES)
-    criterion = nn.CrossEntropyLoss()       # softmax + NLL, expects raw logits
-    optimizer = optim.SGD(model.parameters(), lr=LR, momentum=0.9)
+    # Model
+    model = MLP(INPUT_DIM, HIDDEN_DIM, N_CLASSES)
 
     # Train
     print("Training...")
-    train(model, train_loader, criterion, optimizer, epochs=EPOCHS)
+    train(model, X_train, y_train, lr=LR, epochs=EPOCHS)
 
     # Evaluate
-    val_acc = evaluate(model, val_loader)
+    val_acc = evaluate(model, X_val, y_val)
     print(f"\nValidation Accuracy: {val_acc:.3f}")
 
     # Predict
     predictions = predict(model, X_val)
-    print(f"\nPredicted: {predictions}")
-    print(f"Actual:    {y_val}")
+    print(f"\nPredicted: {predictions.numpy()}")
+    print(f"Actual:    {y_val.numpy()}")
