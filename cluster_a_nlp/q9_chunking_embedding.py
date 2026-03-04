@@ -66,17 +66,12 @@ def chunk_document(text: str, chunk_size: int = 200, overlap: int = 50,
     return chunks
 
 
-def mock_embed(text: str, dim: int = 64) -> np.ndarray:
-    """CoderPad-safe embedding: normalized BoW hashed to fixed dim."""
-    tokens = re.sub(r'[^\w\s]', '', text.lower()).split()
+def mock_embed(text, dim=64):
     vec = np.zeros(dim)
-    for token in tokens:
-        idx = hash(token) % dim
-        vec[idx] += 1.0
+    for token in text.lower().split():
+        vec[hash(token) % dim] += 1.0
     norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    return vec
+    return vec / norm if norm > 0 else vec
 
 
 def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
