@@ -68,6 +68,10 @@ def confusion_matrix(y_true, y_pred):
     return matrix, labels
 
 
+def print_confusion_matrix(matrix, labels=None):
+    return print_matrix(matrix, labels)
+
+
 def print_matrix(matrix, labels=None):
     """Clean print for interview - shows actual/predicted clearly"""
     if not matrix:

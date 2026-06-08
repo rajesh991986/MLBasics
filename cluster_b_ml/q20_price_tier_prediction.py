@@ -189,7 +189,7 @@ print("\n--- V1: Logistic Regression ---")
 print("PROS: Interpretable, fast, coefficients show feature impact")
 print("CONS: Linear boundaries only, needs feature engineering for interactions")
 
-lr = LogisticRegression(max_iter=1000, multi_class="multinomial", C=1.0, random_state=42)
+lr = LogisticRegression(max_iter=1000, C=1.0, random_state=42)
 lr.fit(X_train_scaled, y_train)
 y_pred_lr = lr.predict(X_test_scaled)
 y_proba_lr = lr.predict_proba(X_test_scaled)
